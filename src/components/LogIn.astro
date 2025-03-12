@@ -1,0 +1,113 @@
+---
+
+---
+
+<h1>Iniciar Sesión</h1>
+<button id="login">Login con Microsoft</button>
+
+<script>
+  import { onMount } from "solid-js";
+  import {
+    PublicClientApplication,
+    EventType,
+    BrowserAuthError,
+  } from "@azure/msal-browser";
+  import type { AuthenticationResult } from "@azure/msal-browser";
+  import { msalConfig } from "../../authConfig";
+
+  const msalInstance = new PublicClientApplication(msalConfig);
+
+  onMount(async () => {
+    try {
+      await msalInstance.initialize();
+
+      // Manejar la redirección antes de permitir otro login
+      const response = await msalInstance.handleRedirectPromise();
+      if (response?.account) {
+        msalInstance.setActiveAccount(response.account);
+        window.location.href = "/login"; // Redirigir al usuario autenticado
+        return;
+      }
+
+      // Verificar si ya hay una sesión activa
+      const activeAccount = msalInstance.getActiveAccount();
+      if (activeAccount) {
+        window.location.href = "/login";
+        return;
+      }
+
+      // Evento de éxito de autenticación
+      msalInstance.addEventCallback((event) => {
+        if (event.eventType === EventType.LOGIN_SUCCESS && event.payload) {
+          const authenticationResult = event.payload as AuthenticationResult;
+          msalInstance.setActiveAccount(authenticationResult.account);
+          window.location.href = "/login"; // Redirigir después del login
+        }
+      });
+    } catch (error) {
+      console.error("Error en la autenticación:", error);
+    }
+  });
+
+  async function login() {
+    try {
+      // Verificar si ya hay un usuario autenticado antes de iniciar sesión
+      const activeAccount = msalInstance.getActiveAccount();
+      if (activeAccount) {
+        window.location.href = "/login";
+        return;
+      }
+
+      // Si hay una autenticación en progreso, cerrarla antes de continuar
+      const interactionInProgress = sessionStorage.getItem(
+        "msal.interaction.status"
+      );
+      if (interactionInProgress === "inProgress") {
+        console.warn("Autenticación en curso. Reiniciando sesión...");
+        return;
+      }
+
+      await msalInstance.loginRedirect();
+    } catch (error) {
+      if (
+        error instanceof BrowserAuthError &&
+        error.errorCode === "interaction_in_progress"
+      ) {
+        console.warn(
+          "Autenticación en progreso detectada. Reiniciando sesión..."
+        );
+      } else {
+        console.error("Error al iniciar sesión:", error);
+      }
+    }
+  }
+
+  async function resetAuthAndLogin() {
+    try {
+      console.warn("Reseteando autenticación...");
+
+      // Limpiar sessionStorage, localStorage y MSAL cache
+      sessionStorage.clear();
+      localStorage.clear();
+      msalInstance.clearCache();
+
+      // Remover cuenta activa en MSAL
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        msalInstance.setActiveAccount(null);
+      }
+
+      console.warn("Autenticación reseteada. Iniciando nuevo login...");
+      await login();
+    } catch (error) {
+      console.error("Error al resetear autenticación e iniciar sesión:", error);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    const loginButton = document.getElementById("login");
+    if (loginButton) {
+      loginButton.addEventListener("click", resetAuthAndLogin);
+    }
+  });
+</script>
